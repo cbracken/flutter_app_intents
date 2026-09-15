@@ -2,8 +2,8 @@ import AppIntents
 import Foundation
 import Flutter
 
-/// Thread-safe bridge connecting Apple App Intents (which execute in cooperative async tasks)
-/// to the FlutterMethodChannel (which must execute on the iOS MainThread / @MainActor).
+/// Thread-safe bridge connecting Apple App Intents (executing in cooperative async tasks),
+/// to the FlutterMethodChannel, which must execute on the iOS main thread.
 @available(iOS 16.0, *)
 public class AppIntentsBridge: @unchecked Sendable {
   public static let shared = AppIntentsBridge()
@@ -16,7 +16,7 @@ public class AppIntentsBridge: @unchecked Sendable {
     self.channel = channel
   }
 
-  /// Invokes a Dart method over the FlutterMethodChannel on the main thread (@MainActor).
+  /// Invokes a Dart method over the FlutterMethodChannel on the main thread.
   ///
   /// When an App Intent triggers while the app is backgrounded or terminated,
   /// FlutterAppDelegate / LaunchEngine creates a headless Dart engine.
@@ -96,8 +96,8 @@ public struct FlutterTaskQuery: EntityQuery {
 
 /// A sample App Intent testing integration between Apple App Intents and Flutter Dart code.
 ///
-/// Demonstrates how an App Intent is registered, parameter handling, and how `perform()`
-/// invokes Dart code via `AppIntentsBridge`.
+/// Demonstrates how to register an App Intent, do parameter handling, and how `perform()` invokes
+/// Dart code via `AppIntentsBridge`.
 @available(iOS 16.0, *)
 public struct AddFlutterTaskIntent: AppIntent {
   public static var title: LocalizedStringResource = "Add Flutter Task"
