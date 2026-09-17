@@ -3,6 +3,8 @@ import 'package:app_intents_plugin/app_intents_plugin.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // Register the method channel handler before iOS can deliver an App Intent.
+  AppIntentsPlugin.ensureInitialized();
   runApp(const MyApp());
 }
 

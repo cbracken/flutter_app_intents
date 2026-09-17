@@ -38,6 +38,10 @@ public enum AppIntentsBridgeError: Error, LocalizedError, CustomLocalizedStringR
 ///
 /// The channel may only be touched from the platform (main) thread, so the whole type is
 /// `@MainActor`-isolated. That isolation is what makes `channel` race-free.
+///
+/// - Important: This assumes a single Flutter engine. The bridge holds one channel, so in a
+///   multi-engine app the most recently registered engine wins and intents are routed to that
+///   engine's isolate. Keying the bridge by engine would be required to support more than one.
 @available(iOS 16.0, *)
 @MainActor
 public final class AppIntentsBridge {

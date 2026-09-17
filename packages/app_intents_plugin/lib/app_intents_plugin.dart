@@ -3,6 +3,18 @@ import 'app_intents_plugin_platform_interface.dart';
 export 'app_intents_plugin_platform_interface.dart' show OnIntentTriggeredCallback;
 
 class AppIntentsPlugin {
+  /// Ensures the Dart side is listening for App Intent invocations.
+  ///
+  /// Call this early in `main()`, before any intent can be delivered.
+  ///
+  /// [AppIntentsPluginPlatform.instance] is lazily constructed, and it is that
+  /// construction which registers the method channel handler. Until something
+  /// touches it, an intent arriving at a cold-started engine is answered with
+  /// `FlutterMethodNotImplemented`, which the native side reports as a failure.
+  static void ensureInitialized() {
+    AppIntentsPluginPlatform.instance;
+  }
+
   Future<String?> getPlatformVersion() {
     return AppIntentsPluginPlatform.instance.getPlatformVersion();
   }
