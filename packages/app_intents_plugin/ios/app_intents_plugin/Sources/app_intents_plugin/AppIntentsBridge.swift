@@ -16,6 +16,9 @@ public enum AppIntentsBridgeError: Error, LocalizedError, CustomLocalizedStringR
   /// so that this error remains `Sendable`.
   case dart(code: String, message: String?)
 
+  /// Dart accepted the call but never replied.
+  case replyTimedOut(String)
+
   public var errorDescription: String? {
     switch self {
     case .channelUnavailable:
@@ -24,6 +27,8 @@ public enum AppIntentsBridgeError: Error, LocalizedError, CustomLocalizedStringR
       "Dart does not implement '\(method)'."
     case .dart(let code, let message):
       message ?? "Dart error: \(code)"
+    case .replyTimedOut(let method):
+      "Dart did not reply to '\(method)' in time."
     }
   }
 
@@ -60,28 +65,43 @@ public final class AppIntentsBridge {
   ///
   /// When an App Intent triggers while the app is backgrounded or terminated,
   /// FlutterAppDelegate / LaunchEngine creates a headless Dart engine. That engine may still be
-  /// starting when the intent runs, so this waits up to `timeout` for the channel to be
+  /// starting when the intent runs, so this waits up to `startupTimeout` for the channel to be
   /// registered before giving up.
+  ///
+  /// Dart is then given `replyTimeout` to respond. Without that bound, a Dart handler that never
+  /// completes would suspend the calling intent indefinitely.
   ///
   /// - Returns: The reply, or `nil` if Dart replied with `null` or with a value that is not a `T`.
   /// - Throws: ``AppIntentsBridgeError`` if the channel never becomes available, the method is
-  ///   unimplemented in Dart, or Dart replied with an error.
+  ///   unimplemented in Dart, Dart replied with an error, or Dart did not reply in time.
   public func invokeMethod<T: Sendable>(
     _ method: String,
     arguments: [String: any Sendable] = [:],
-    timeout: Duration = .seconds(5)
+    startupTimeout: Duration = .seconds(5),
+    replyTimeout: Duration = .seconds(30)
   ) async throws -> T? {
-    let channel = try await channel(waitingUpTo: timeout)
+    let channel = try await channel(waitingUpTo: startupTimeout)
     return try await withCheckedThrowingContinuation { continuation in
+      // The reply and the timeout race; whichever lands first wins.
+      let once = SingleResume<T?>(continuation)
+      let deadline = Task { @MainActor in
+        try? await Task.sleep(for: replyTimeout)
+        guard !Task.isCancelled else { return }
+        once.resume(throwing: AppIntentsBridgeError.replyTimedOut(method))
+      }
       channel.invokeMethod(method, arguments: arguments) { reply in
-        switch reply {
-        case let error as FlutterError:
-          continuation.resume(
-            throwing: AppIntentsBridgeError.dart(code: error.code, message: error.message))
-        case let object as NSObject where object === FlutterMethodNotImplemented:
-          continuation.resume(throwing: AppIntentsBridgeError.methodNotImplemented(method))
-        default:
-          continuation.resume(returning: reply as? T)
+        // Channels created without a task queue deliver replies on the platform (main) thread.
+        MainActor.assumeIsolated {
+          deadline.cancel()
+          switch reply {
+          case let error as FlutterError:
+            once.resume(
+              throwing: AppIntentsBridgeError.dart(code: error.code, message: error.message))
+          case let object as NSObject where object === FlutterMethodNotImplemented:
+            once.resume(throwing: AppIntentsBridgeError.methodNotImplemented(method))
+          default:
+            once.resume(returning: reply as? T)
+          }
         }
       }
     }
@@ -95,5 +115,29 @@ public final class AppIntentsBridge {
     }
     guard let channel else { throw AppIntentsBridgeError.channelUnavailable }
     return channel
+  }
+}
+
+/// Resumes a continuation exactly once, ignoring any later attempts.
+///
+/// Resuming a continuation twice is undefined behaviour, so racing a reply against a timeout
+/// needs a guard. Main-actor isolation is what makes the check-and-clear atomic.
+@available(iOS 16.0, *)
+@MainActor
+private final class SingleResume<T> {
+  private var continuation: CheckedContinuation<T, any Error>?
+
+  init(_ continuation: CheckedContinuation<T, any Error>) {
+    self.continuation = continuation
+  }
+
+  func resume(returning value: T) {
+    continuation?.resume(returning: value)
+    continuation = nil
+  }
+
+  func resume(throwing error: any Error) {
+    continuation?.resume(throwing: error)
+    continuation = nil
   }
 }

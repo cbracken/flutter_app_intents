@@ -33,9 +33,11 @@ class AppIntentsDemoPage extends StatefulWidget {
 
 class _AppIntentsDemoPageState extends State<AppIntentsDemoPage> {
   final AppIntentsPlugin _appIntentsPlugin = AppIntentsPlugin();
-  final List<String> _tasks = [];
+  final List<AppIntentTask> _tasks = [];
   String _statusMessage = 'Waiting for App Intent triggers...';
   String _platformVersion = 'Unknown';
+  String? _highlightedTaskId;
+  int _nextTaskNumber = 1;
 
   @override
   void initState() {
@@ -58,18 +60,54 @@ class _AppIntentsDemoPageState extends State<AppIntentsDemoPage> {
     // Register handler for App Intents invoked by iOS / Siri / Shortcuts / Core AI
     _appIntentsPlugin.setIntentHandler((arguments) async {
       final title = arguments['title'] as String? ?? 'Untitled Task';
+      await _addTask(title);
       setState(() {
-        _tasks.add(title);
         _statusMessage = 'Last Intent Triggered: AddFlutterTask ("$title")';
       });
       return 'Successfully added task "$title" to Flutter state';
     });
+
+    // Invoked when a task is opened from Spotlight, Siri or Shortcuts.
+    _appIntentsPlugin.setOpenTaskHandler((id) async {
+      setState(() {
+        _highlightedTaskId = id;
+        final task = _tasks.where((task) => task.id == id).firstOrNull;
+        _statusMessage = task == null
+            ? 'Asked to open unknown task $id'
+            : 'Opened "${task.title}" from Spotlight / Siri';
+      });
+    });
+
+    await _syncTasks();
+  }
+
+  /// Mirrors the task list into the native cache so Siri and Spotlight can see it.
+  Future<void> _syncTasks() async {
+    try {
+      await _appIntentsPlugin.syncTasks(_tasks);
+    } catch (e) {
+      // Syncing is best effort; the app remains usable without Spotlight.
+      debugPrint('Failed to sync tasks: $e');
+    }
+  }
+
+  Future<void> _addTask(String title) async {
+    setState(() {
+      _tasks.add(
+        AppIntentTask(
+          // Unique and stable for the lifetime of the index entry.
+          id: 'task-${DateTime.now().microsecondsSinceEpoch}-${_nextTaskNumber++}',
+          title: title,
+          subtitle: 'Added via AddFlutterTaskIntent',
+        ),
+      );
+    });
+    await _syncTasks();
   }
 
   Future<void> _simulateIntent() async {
-    final taskNumber = _tasks.length + 1;
     final res = await _appIntentsPlugin.simulateAppIntent(
-      'Demo Task #$taskNumber',
+      'Demo Task #$_nextTaskNumber',
     );
     setState(() {
       _statusMessage = 'Simulation Result: $res';
@@ -118,13 +156,20 @@ class _AppIntentsDemoPageState extends State<AppIntentsDemoPage> {
                   : ListView.builder(
                       itemCount: _tasks.length,
                       itemBuilder: (context, index) {
+                        final task = _tasks[index];
+                        final highlighted = task.id == _highlightedTaskId;
                         return Card(
+                          color: highlighted
+                              ? Theme.of(context).colorScheme.primaryContainer
+                              : null,
                           child: ListTile(
-                            leading: const Icon(Icons.check_circle_outline),
-                            title: Text(_tasks[index]),
-                            subtitle: Text(
-                              'Added via AddFlutterTaskIntent (#${index + 1})',
+                            leading: Icon(
+                              highlighted
+                                  ? Icons.open_in_new
+                                  : Icons.check_circle_outline,
                             ),
+                            title: Text(task.title),
+                            subtitle: Text(task.subtitle ?? task.id),
                           ),
                         );
                       },

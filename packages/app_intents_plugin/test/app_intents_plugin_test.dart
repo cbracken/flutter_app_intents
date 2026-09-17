@@ -10,8 +10,14 @@ class MockAppIntentsPluginPlatform
   /// The handler most recently passed to [setIntentHandler], if any.
   OnIntentTriggeredCallback? handler;
 
+  /// The handler most recently passed to [setOpenTaskHandler], if any.
+  OnOpenTaskCallback? openTaskHandler;
+
   /// Titles received by [simulateAppIntent], in call order.
   final List<String> simulatedTitles = [];
+
+  /// The most recent task list passed to [syncTasks].
+  List<AppIntentTask>? syncedTasks;
 
   @override
   Future<String?> getPlatformVersion() => Future.value('42');
@@ -22,9 +28,19 @@ class MockAppIntentsPluginPlatform
   }
 
   @override
+  void setOpenTaskHandler(OnOpenTaskCallback handler) {
+    openTaskHandler = handler;
+  }
+
+  @override
   Future<String?> simulateAppIntent(String title) {
     simulatedTitles.add(title);
     return Future.value('Simulated: $title');
+  }
+
+  @override
+  Future<void> syncTasks(List<AppIntentTask> tasks) async {
+    syncedTasks = tasks;
   }
 }
 
@@ -75,6 +91,28 @@ void main() {
 
       expect(fakePlatform.simulatedTitles, ['Demo Task']);
       expect(result, 'Simulated: Demo Task');
+    });
+
+    test('setOpenTaskHandler', () async {
+      String? opened;
+      appIntentsPlugin.setOpenTaskHandler((id) async {
+        opened = id;
+      });
+
+      expect(fakePlatform.openTaskHandler, isNotNull);
+      await fakePlatform.openTaskHandler!('task-1');
+      expect(opened, 'task-1');
+    });
+
+    test('syncTasks', () async {
+      const tasks = [
+        AppIntentTask(id: 'task-1', title: 'Buy milk'),
+        AppIntentTask(id: 'task-2', title: 'Walk dog', subtitle: 'Before noon'),
+      ];
+
+      await appIntentsPlugin.syncTasks(tasks);
+
+      expect(fakePlatform.syncedTasks, tasks);
     });
   });
 }

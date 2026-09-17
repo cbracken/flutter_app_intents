@@ -1,42 +1,6 @@
 import AppIntents
 import Foundation
 
-/// A sample App Entity representing a task/item in the Flutter application.
-@available(iOS 16.0, *)
-public struct FlutterTaskEntity: AppEntity, Identifiable {
-  public static let typeDisplayRepresentation: TypeDisplayRepresentation = "Flutter Task"
-  public static let defaultQuery = FlutterTaskQuery()
-
-  public var id: String
-  public var title: String
-
-  public var displayRepresentation: DisplayRepresentation {
-    DisplayRepresentation(title: "\(title)")
-  }
-
-  public init(id: String, title: String) {
-    self.id = id
-    self.title = title
-  }
-}
-
-/// A sample EntityQuery for finding and suggesting `FlutterTaskEntity` items.
-@available(iOS 16.0, *)
-public struct FlutterTaskQuery: EntityQuery {
-  public init() {}
-
-  public func entities(for identifiers: [FlutterTaskEntity.ID]) async throws -> [FlutterTaskEntity] {
-    identifiers.map { FlutterTaskEntity(id: $0, title: "Task \($0)") }
-  }
-
-  public func suggestedEntities() async throws -> [FlutterTaskEntity] {
-    [
-      FlutterTaskEntity(id: "1", title: "Review Flutter iOS Embedder"),
-      FlutterTaskEntity(id: "2", title: "Test Apple App Intents Plugin")
-    ]
-  }
-}
-
 /// A sample App Intent testing integration between Apple App Intents and Flutter Dart code.
 ///
 /// Demonstrates how to register an App Intent, do parameter handling, and how `perform()` invokes
@@ -65,4 +29,46 @@ public struct AddFlutterTaskIntent: AppIntent {
     )
     return .result(value: reply ?? "Task '\(title)' added via Flutter engine")
   }
+}
+
+/// Opens a task in the Flutter application.
+///
+/// Conforming to `OpenIntent` is what gives Spotlight results and Siri something to do when the
+/// user taps a task: the system foregrounds the app, then `perform()` tells Dart which task to
+/// show. `openAppWhenRun` is supplied by `OpenIntent` and is always `true`.
+@available(iOS 16.0, *)
+public struct OpenFlutterTaskIntent: OpenIntent {
+  public static let title: LocalizedStringResource = "Open Flutter Task"
+  public static let description = IntentDescription("Opens a task in the Flutter application.")
+
+  @Parameter(title: "Task")
+  public var target: FlutterTaskEntity
+
+  public init() {}
+
+  public init(target: FlutterTaskEntity) {
+    self.target = target
+  }
+
+  public func perform() async throws -> some IntentResult {
+    let _: String? = try await AppIntentsBridge.shared.invokeMethod(
+      "onOpenTask",
+      arguments: ["id": target.id]
+    )
+    return .result()
+  }
+}
+
+/// Makes the intents in this package discoverable by the system.
+///
+/// App Intents metadata is extracted per module, so intents defined in a Swift package are
+/// invisible unless the app target opts in. The app declares its own `AppIntentsPackage` listing
+/// this type in `includedPackages`. Requires iOS 17.
+///
+/// - Note: Intents and entities propagate to the app this way, but an `AppShortcutsProvider` does
+///   not: one declared here lands in this package's metadata bundle and never reaches the app's
+///   App Shortcuts registry. Siri phrases must therefore be declared in the app target.
+@available(iOS 17.0, *)
+public struct AppIntentsPluginPackage: AppIntentsPackage {
+  public init() {}
 }

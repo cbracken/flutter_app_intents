@@ -42,6 +42,15 @@ public final class AppIntentsPlugin: NSObject, FlutterPlugin {
         }
       }
 
+    case "syncTasks":
+      let rawTasks = (call.arguments as? [String: Any])?["tasks"] as? [[String: Any]] ?? []
+      let tasks = rawTasks.compactMap(CachedTask.init(channelRepresentation:))
+      // Persist before replying, so a query issued right after this call sees the new tasks.
+      TaskCache.save(tasks)
+      result(nil)
+      // Indexing is slower and best effort, so it does not gate the reply.
+      Task { await SpotlightIndexer.reindex(tasks) }
+
     default:
       result(FlutterMethodNotImplemented)
     }

@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:app_intents_plugin/app_intent_task.dart';
 import 'package:app_intents_plugin/app_intents_plugin_platform_interface.dart';
 import 'package:app_intents_prototype/main.dart';
 
@@ -19,11 +20,17 @@ class FakeAppIntentsPluginPlatform extends AppIntentsPluginPlatform {
   /// The handler most recently passed to [setIntentHandler], if any.
   OnIntentTriggeredCallback? handler;
 
+  /// The handler most recently passed to [setOpenTaskHandler], if any.
+  OnOpenTaskCallback? openTaskHandler;
+
   /// Titles received by [simulateAppIntent], in call order.
   final List<String> simulatedTitles = [];
 
   /// The value [simulateAppIntent] returns.
   String simulateResult = 'Simulated OK';
+
+  /// The most recent task list passed to [syncTasks].
+  List<AppIntentTask>? syncedTasks;
 
   @override
   Future<String?> getPlatformVersion() async => 'iOS 42';
@@ -34,9 +41,19 @@ class FakeAppIntentsPluginPlatform extends AppIntentsPluginPlatform {
   }
 
   @override
+  void setOpenTaskHandler(OnOpenTaskCallback handler) {
+    openTaskHandler = handler;
+  }
+
+  @override
   Future<String?> simulateAppIntent(String title) async {
     simulatedTitles.add(title);
     return simulateResult;
+  }
+
+  @override
+  Future<void> syncTasks(List<AppIntentTask> tasks) async {
+    syncedTasks = tasks;
   }
 }
 
@@ -84,12 +101,67 @@ void main() {
 
     expect(result, 'Successfully added task "Buy milk" to Flutter state');
     expect(find.text('Buy milk'), findsOneWidget);
-    expect(find.text('Added via AddFlutterTaskIntent (#1)'), findsOneWidget);
+    expect(find.text('Added via AddFlutterTaskIntent'), findsOneWidget);
     expect(
       find.text('Status: Last Intent Triggered: AddFlutterTask ("Buy milk")'),
       findsOneWidget,
     );
     expect(find.textContaining('No tasks yet'), findsNothing);
+  });
+
+  testWidgets('added tasks are synced to the native cache', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const MyApp());
+    await tester.pumpAndSettle();
+
+    // Synced on startup, before any task exists.
+    expect(fakePlatform.syncedTasks, isEmpty);
+
+    await fakePlatform.handler!({'title': 'Buy milk'});
+    await tester.pumpAndSettle();
+
+    // Spotlight and Siri read this cache, so the task must reach it with a
+    // stable id.
+    expect(fakePlatform.syncedTasks, hasLength(1));
+    final synced = fakePlatform.syncedTasks!.single;
+    expect(synced.title, 'Buy milk');
+    expect(synced.id, isNotEmpty);
+  });
+
+  testWidgets('opening a task from Spotlight highlights it', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const MyApp());
+    await tester.pumpAndSettle();
+
+    await fakePlatform.handler!({'title': 'Buy milk'});
+    await tester.pumpAndSettle();
+    final id = fakePlatform.syncedTasks!.single.id;
+
+    // Drive the handler the way OpenFlutterTaskIntent would.
+    await fakePlatform.openTaskHandler!(id);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Status: Opened "Buy milk" from Spotlight / Siri'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('opening an unknown task is reported, not crashed', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const MyApp());
+    await tester.pumpAndSettle();
+
+    await fakePlatform.openTaskHandler!('task-does-not-exist');
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('Asked to open unknown task'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('a task with no title falls back to a placeholder', (
